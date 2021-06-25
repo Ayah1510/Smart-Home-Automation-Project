@@ -1,0 +1,208 @@
+//The library for physical motors
+#include <Servo.h> 
+
+//Define Pins:
+int TrigPin = 3; //For the Trigger pin in the ultrasonic sensor
+int EchoPin = 2; //For the Echo pin in the ultrasonic sensor
+int ServoPin = 4; //for the Servo motor
+int bulbPin = 5; //for the bulb
+int LDRPin = A0; // For the LDR (photoresistor) which is connected to a0
+int PirPin = 6; //for the PIR Sensor
+int TempPin = A1; //for the temperature sensor
+int MotorPin = 11; //for the DC motor
+
+//Define variables:
+long time;
+long distance;
+Servo servo; //Assigns the Servo type variable to a physical motor with name servo 
+int LDRReading; // the analog reading from the photoresistor
+int PirReading;
+float TempReading;
+int data=9;
+int previousData=9;
+int speed;
+int doorOpen=0;
+int SignalDoorSent=0;
+int motorON=0;
+int motorSignalSent=0;
+int bulbON=0;
+unsigned long startMillis = 0;
+
+
+// This fuction returns the distance for the object from the ultrasonic sensor.
+long getDistance(){
+  digitalWrite(TrigPin, LOW); //Deactivate the Trigger pin.
+  delayMicroseconds(2);// Wait for 2 microseconds
+  digitalWrite(TrigPin, HIGH); //Activate the Trigger pin, to send the pulse
+  delayMicroseconds(10);// Wait for 10 microseconds
+  digitalWrite(TrigPin, LOW); //Deactivate the Trigger pin to read the pulse.  
+ // pulseIn measures the time since the EchoPin changes its status from low to high
+ // it returns the sound wave travel time in microseconds
+  time = pulseIn(EchoPin, HIGH);
+  //Speed = 0.0343/2 = 0.01715;
+  return 0.01715 * time;
+}
+
+//This function to open the door wich is the servo motor
+void openDoor(){
+ servo.write(90); //Rotates the servo motor to 90 degree.
+ delay(1000); //to let the servo motor rotate before making any further moves
+ delay(3000); //let the servo motor open for 3 sec
+}
+//This function to close the door wich is the servo motor
+void closeDoor(){
+ servo.write(0); //Rotates the servo motor to the original (0 degree)
+ delay(1000); //to let the servo motor rotate before making any further moves
+ doorOpen=0;
+}
+
+void setup(){
+  Serial.begin(9600); //For communication with the other arduino
+  pinMode(TrigPin, OUTPUT); //define the Trigger pin as output
+  pinMode(EchoPin, INPUT); //define the Echo Pin as input
+  servo.attach(ServoPin); //attach the servo motor to the pin
+  pinMode(LDRPin, INPUT); //define A0 as input which will be connected to the LDR
+  pinMode(PirPin, INPUT); //Define PIR pin as input
+  pinMode(bulbPin, OUTPUT); //Define the Bulb pin as output
+  pinMode(TempPin, INPUT); //Define Temperature sensor pin as input
+  pinMode(MotorPin, OUTPUT); //Define the Motor pin as output
+}
+
+void loop(){
+  //check if the arduino sent data
+  if(Serial.available())
+     data = Serial.parseInt(); // save the data as int type
+  
+  distance = getDistance(); //get the distance in the ultrasonic sensor
+  LDRReading = analogRead(LDRPin); //Read the value from the LDR sensor
+  PirReading = digitalRead(PirPin); //Read the value from the PIR sensor
+  TempReading = map(((analogRead(A1)-20)*3.04),0,1023,-40,125); //Get the reading from the temperature sensor
+  
+  //for automatic Mode (number -1)
+  //data=0, when there is no data sent from the other arduino
+  //which means no changes has been made
+  //then what defines the mode is the variable previousData
+  //if it equals -1 > auto mode
+  if(data==-1 || (data==0 && previousData==-1)){
+  	    if ( distance <=  50) //if the distance is less or equal 50cm
+    		openDoor(); //open the door (servo motor)
+  		else   // else (if the distance larger than 50cm)
+   			closeDoor(); //close the door  (servo motor)
+    
+ 		// Check if the there is no enough light
+  		//AND there is a movement (PIR high)
+  		if (LDRReading <600 && PirReading == HIGH){
+  			digitalWrite(bulbPin, HIGH); //To turn on the bulb
+  			//millis() return number of milliseconds passed since the Arduino board began running the current program
+          	//it is used because waiting for 1 minute using the delay without doing anything else is inefficient 
+          	startMillis = millis();
+  		}
+    	//check if the bulb is ON
+    	//then check if 1 minute has been spent since turning on the bulb
+    	if(digitalRead(bulbPin) == HIGH && millis()-startMillis >=60000){
+          //if the minute finished but there is still movement & there is no enough light
+          //the bulb will be ON for another 1 min
+          if(LDRReading <600 && PirReading == HIGH)
+            startMillis = millis();
+            //if there is no movement or there is enough light, the bulb will be turned off
+           else{
+          	digitalWrite(bulbPin, LOW);  //To turn off the bulb
+          	startMillis=0;
+           }
+        }
+    
+    	//check the temperature if it is above 30 to turn on the motor
+  		if( TempReading > 30){
+    		speed= (int) TempReading *2; //speed of the motor is twice the temperature to make relation between speed and temp
+    		analogWrite(MotorPin, speed); //turn on the motor on the specific speed
+  		}
+  		else
+    		analogWrite(MotorPin,0); //turn off the motor
+    	previousData=-1; 
+     }
+  	
+  	//for Manual Mode (number 1)
+     if(data==1 || (data==0 && previousData==1)){
+       //to only send 1 signal to the other arduino when needed (when distance <=50)
+       //so the variable doorOpen is used
+       //bc when the door is open & the distance <=50, no signal will be sent bc the user already opened the door
+       if ( distance <=  50 && doorOpen==0){        
+         closeDoor(); //close the door  (servo motor)
+         Serial.println(2); //send the other arduino signal 2
+    	 delay(1000);
+         doorOpen=1; //changing it bc a signal was sent
+         SignalDoorSent=0; //this variable is used to check if the door is open or not
+       }
+       //keep the door open if sth is still in distance <=50
+       //AND the door is already opened
+       //it is used to make sure that the user recieved a signal before to open the door
+       else if ( distance <=  50 && SignalDoorSent==1)
+         openDoor();
+       else if (distance > 50) //close the door only when distanve >50
+         closeDoor(); //close the door  (servo motor)
+       
+       //to check if there is movement AND there is no enough light
+       //AND no signal was sent before for this case (before turning the bulb off)
+       if (LDRReading <600 && PirReading == HIGH && bulbON==0 ){
+         digitalWrite(bulbPin, LOW);  //To turn off the bulb
+         Serial.println(3);//send the other arduino signal # 3
+    	 delay(1000);
+         bulbON=1;//this variable is used to check if the bulb is on or off
+       }    
+       // to check when the bulb is on after 1min to either turn it off or keep it on for another 1min
+       if(digitalRead(bulbPin) == HIGH && (millis()-startMillis >=60000)){
+         //if the minute finished but there is still movement & there is no enough light
+         //the bulb will continue ON for another 1 min
+         if(LDRReading <600 && PirReading == HIGH)
+            startMillis = millis();
+         //if there is no movement or there is enough light, the bulb wwill be turned off
+         else{
+         digitalWrite(bulbPin, LOW);  //To turn off the bulb
+         startMillis=0;	//set the start time to 0
+         bulbON=0; //to allow to send another signal to the 2nd aruino if needed
+         }
+       }
+               
+       //Send signal only when temperature above 30
+       // AND the motor is currently OFF (No signal was sent for this case)
+       if( TempReading > 30 && motorON==0){
+         analogWrite(MotorPin,0); //turn off the motor
+         Serial.println(4);//send the other arduino signal #4
+    	 delay(1000);
+         motorON=1; //changing it bc a signal has been sent
+         motorSignalSent=0; //this variable is used to check if the motor is on or off
+       }
+       // to see if the temperature has changed so the motor's speed will change
+       else if( TempReading > 30 && motorSignalSent==1){
+    	 speed= (int) TempReading *2;
+         analogWrite(MotorPin, speed);
+       }
+       //to turn off the motor when the temperature is less than 30
+       else if( TempReading <= 30){
+         analogWrite(MotorPin,0);
+         motorON=0;
+       }
+         
+       previousData=1;
+     }
+  
+  //check if the other arduino sent signal 5
+  //it means to open the door (servo motor)
+  if(data==5){
+    openDoor();
+    SignalDoorSent=1; //the servo motor is turned on
+  }
+  //check if the other arduino sent signal 6
+  //it means to turn on the bulb
+  else if (data ==6){
+    digitalWrite(bulbPin, HIGH); //To turn on the bulb
+    startMillis = millis();
+  }
+  //check if the other arduino sent signal 7
+  //it means to turn on the dc motor
+  else if (data ==7){
+    speed= (int) TempReading *2;
+    analogWrite(MotorPin, speed);
+    motorSignalSent=1; //the motor is turned on
+  }
+}

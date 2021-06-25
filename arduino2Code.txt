@@ -1,0 +1,94 @@
+#include <IRremote.h>
+
+//Define Pins
+int RemotePin = 3; //For the IR remote
+int switchPin = 2; //For the slide switch
+int servoLEDPin = 4; //For the servo LED alarm
+int motorLEDPin = 5; //For the motor LED alarm
+int bulbLEDPin = 6; //for the bulb LED alarm
+int servoBuzPin = 7; //for the servo buzzer alarm
+int motorBuzPin = 9; // For the motor buzzer alarm
+int bulbBuzPin = 8; //for the bulb buzzer alarm
+
+IRrecv irrecv(RemotePin);// create a receiver object of the IRrecv class
+decode_results results; // create a results object of the decode_results class
+int switchValue=HIGH;
+int previousValue=2;
+
+void setup()
+{
+  Serial.begin(9600);
+  pinMode(switchPin, INPUT);
+  irrecv.enableIRIn(); 
+  pinMode(servoLEDPin, OUTPUT); //define the servo LED pin as output
+  pinMode(motorLEDPin, OUTPUT); //define the motor LED pin as output
+  pinMode(bulbLEDPin, OUTPUT); //define the bulb LED pin as output
+  pinMode(servoBuzPin, OUTPUT); //define the servo buzzer pin as output
+  pinMode(motorBuzPin, OUTPUT); //define the motor buzzer pin as output
+  pinMode(bulbBuzPin, OUTPUT); //define the bulb buzzer pin as output
+}
+
+void loop()
+{
+  switchValue = digitalRead(switchPin); //get the value of the switch
+  //if the switch is high it means it is in auto mode
+  //also check if -1 was sent before to not send it again
+  //so both arduinos work fast
+  if (switchValue == HIGH && previousValue!=-1) {
+    Serial.println(-1); //auto
+    previousValue=-1;
+  }
+  //if the switch is low it means it is in manual mode
+  else if (switchValue == LOW && previousValue!=1){ 
+    Serial.println(1);//manual
+    previousValue=1;
+  }
+  //the manual mode (controlling the remote/leds/buzzers)
+  if (switchValue == LOW) {
+    if(Serial.available()){ //if the other arduino sent an signal
+      int data= Serial.parseInt(); //save it as integer
+      //signal 2 for the servo motor (door)
+      //it means that the distance >=50 and the user must be notified
+      if(data==2){
+        digitalWrite(servoLEDPin, HIGH); //To turn on the led for the servo motor
+        digitalWrite(servoBuzPin,HIGH); //To turn on the buzzer for the servo motor
+      }
+      //signal 3 for the bulb
+      //it means that there was movement and no enogh light and the user must be notified
+      if(data==3){
+        digitalWrite(bulbLEDPin, HIGH); //To turn on the led for the bulb
+        digitalWrite(bulbBuzPin,HIGH); //To turn on the buzzer for the bulb
+      }
+      //signal 4 for the motor 
+      //it means that the temperature >30 and the user must be notified
+      if(data==4){
+        digitalWrite(motorLEDPin, HIGH); //To turn on the led for the motor
+        digitalWrite(motorBuzPin,HIGH); //To turn on the buzzer for the motor
+      }
+    }
+    //for the IR Remote
+  	if (irrecv.decode(&results)) {//returns true if anything is received, and stores info in variable results
+    	unsigned int value = results.value; //Get the value of results as an unsigned int, so we can use switch case
+    	switch (value) { 
+    	  case 2295: // button #1
+          	digitalWrite(servoLEDPin, LOW); //turn off the servo led
+          	digitalWrite(servoBuzPin, LOW);//turn off the servo  buzzer
+          	Serial.println(5); //send the other arduino signal 5 to open the door
+          	break; //so the other cases don't run
+          case 34935: //button #2
+          	digitalWrite(bulbLEDPin, LOW); //turn off the bulb led
+          	digitalWrite(bulbBuzPin, LOW); //turn off the bulb buzzer
+          	Serial.println(6);//send the other arduino signal 6 to turn on the bulb
+          	break;
+          case 18615: //button #3
+          	digitalWrite(motorLEDPin, LOW); //turn off the motor led
+          	digitalWrite(motorBuzPin, LOW); //turn off the motor buzzer
+          	Serial.println(7);//send the other arduino signal 7 to turn on the motor
+          	break;
+        }
+      irrecv.resume(); // Receive the next value
+    }             
+   
+  }
+}
+    
